@@ -1,0 +1,816 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>scoliosisNET 四点标注工具</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+        background: #eef2f5;
+        color: #18232f;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+      }
+
+      button,
+      input,
+      textarea {
+        font: inherit;
+      }
+
+      .shell {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 390px;
+        min-height: 100vh;
+      }
+
+      .workspace {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 18px;
+        padding: 16px 20px;
+        border-bottom: 1px solid #cad3dd;
+        background: #ffffff;
+      }
+
+      h1,
+      h2,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        font-size: 20px;
+        line-height: 1.25;
+      }
+
+      .topbar p {
+        margin-top: 4px;
+        color: #667383;
+        font-size: 13px;
+      }
+
+      .actions,
+      .buttonGrid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      button,
+      .fileButton {
+        min-height: 36px;
+        border: 1px solid #bec9d4;
+        border-radius: 6px;
+        background: #ffffff;
+        color: #18232f;
+        padding: 0 12px;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        white-space: nowrap;
+      }
+
+      button:hover,
+      .fileButton:hover {
+        border-color: #51687f;
+      }
+
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.45;
+      }
+
+      input[type="file"] {
+        display: none;
+      }
+
+      .canvasWrap {
+        flex: 1;
+        display: grid;
+        place-items: center;
+        padding: 18px;
+        overflow: auto;
+        background: #dfe5eb;
+      }
+
+      canvas {
+        width: min(74vw, 980px);
+        aspect-ratio: 11 / 14;
+        height: auto;
+        border: 1px solid #aebac7;
+        background: #10161c;
+        box-shadow: 0 12px 28px rgba(18, 31, 45, 0.18);
+        cursor: crosshair;
+      }
+
+      .panel {
+        padding: 18px;
+        background: #ffffff;
+        border-left: 1px solid #cad3dd;
+        overflow-y: auto;
+      }
+
+      .section {
+        padding: 15px 0;
+        border-bottom: 1px solid #e1e7ed;
+      }
+
+      .section:first-child {
+        padding-top: 0;
+      }
+
+      h2 {
+        font-size: 15px;
+        margin-bottom: 10px;
+      }
+
+      .field {
+        display: grid;
+        gap: 6px;
+        margin-bottom: 10px;
+        font-size: 13px;
+      }
+
+      .field input,
+      textarea {
+        width: 100%;
+        min-height: 36px;
+        border: 1px solid #c8d1db;
+        border-radius: 6px;
+        padding: 7px 9px;
+        background: #ffffff;
+      }
+
+      textarea {
+        min-height: 250px;
+        resize: vertical;
+        font-family: Consolas, "Courier New", monospace;
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .buttonGrid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .buttonGrid button {
+        width: 100%;
+      }
+
+      .row {
+        display: grid;
+        grid-template-columns: minmax(120px, 1fr) auto;
+        gap: 10px;
+        align-items: center;
+        padding: 8px 10px;
+        margin-bottom: 7px;
+        border: 1px solid #e0e7ee;
+        border-radius: 6px;
+        background: #f7f9fb;
+        font-size: 13px;
+      }
+
+      .row strong {
+        font-weight: 650;
+      }
+
+      .value {
+        color: #0f5132;
+        font-weight: 700;
+        text-align: right;
+      }
+
+      .warning {
+        color: #8a4b08;
+      }
+
+      .pointList {
+        display: grid;
+        gap: 7px;
+      }
+
+      .pointItem {
+        display: grid;
+        grid-template-columns: 22px minmax(0, 1fr) auto;
+        gap: 8px;
+        align-items: center;
+        padding: 8px;
+        border: 1px solid #e0e7ee;
+        border-radius: 6px;
+        background: #f8fafc;
+        font-size: 13px;
+      }
+
+      .dot {
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: #b5c0ca;
+      }
+
+      .pointItem.active .dot {
+        background: #e69f00;
+      }
+
+      .pointItem.done .dot {
+        background: #2fbf71;
+      }
+
+      .hint {
+        color: #667383;
+        font-size: 12px;
+        line-height: 1.55;
+        margin-top: 8px;
+      }
+
+      .zoomControls {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 10px;
+      }
+
+      .zoomControls button {
+        min-width: 42px;
+        padding: 0 9px;
+      }
+
+      @media (max-width: 980px) {
+        .shell {
+          grid-template-columns: 1fr;
+        }
+
+        .panel {
+          border-left: 0;
+          border-top: 1px solid #cad3dd;
+        }
+
+        canvas {
+          width: min(96vw, 980px);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="workspace">
+        <header class="topbar">
+          <div>
+            <h1>scoliosisNET 四点点击标注工具</h1>
+            <p>科研/demo 标注辅助；上端椎和下端椎选择必须由医生或研究者确认。</p>
+          </div>
+          <div class="actions">
+            <label class="fileButton">
+              打开 X 线片
+              <input id="imageInput" type="file" accept="image/png,image/jpeg,image/bmp,image/webp" />
+            </label>
+            <label class="fileButton">
+              导入 JSON
+              <input id="jsonInput" type="file" accept="application/json,.json" />
+            </label>
+          </div>
+        </header>
+        <div class="canvasWrap">
+          <canvas id="canvas" width="1100" height="1400"></canvas>
+        </div>
+      </section>
+
+      <aside class="panel">
+        <section class="section">
+          <h2>当前图像</h2>
+          <div id="imageInfo"></div>
+          <p class="hint">坐标使用原图像素坐标，不是页面缩放后的坐标。</p>
+          <p class="hint">可以导入 GPT 预标注 JSON，然后拖动黄色点进行人工复核和修正。</p>
+        </section>
+
+        <section class="section">
+          <h2>点击顺序</h2>
+          <div id="pointList" class="pointList"></div>
+          <div class="buttonGrid" style="margin-top: 10px">
+            <button id="undoButton" type="button">撤销上一点</button>
+            <button id="resetButton" type="button">清空四点</button>
+          </div>
+          <div class="zoomControls">
+            <button id="zoomOutButton" type="button">-</button>
+            <button id="zoomInButton" type="button">+</button>
+            <button id="fitButton" type="button">适应</button>
+            <button id="actualSizeButton" type="button">100%</button>
+          </div>
+          <p class="hint">滚轮缩放；拖动空白处平移；拖动黄色点微调标注。</p>
+        </section>
+
+        <section class="section">
+          <h2>补充信息</h2>
+          <div class="field">
+            <label for="gtInput">医生 Cobb 角参考值，可留空</label>
+            <input id="gtInput" type="number" step="0.1" placeholder="例如 42.5" />
+          </div>
+          <div class="field">
+            <label for="upperInput">上端椎，可留空</label>
+            <input id="upperInput" type="text" placeholder="例如 T6" />
+          </div>
+          <div class="field">
+            <label for="lowerInput">下端椎，可留空</label>
+            <input id="lowerInput" type="text" placeholder="例如 L1" />
+          </div>
+        </section>
+
+        <section class="section">
+          <h2>测量预览</h2>
+          <div id="metrics"></div>
+        </section>
+
+        <section class="section">
+          <h2>JSON 输出</h2>
+          <textarea id="jsonOutput" spellcheck="false" readonly></textarea>
+          <div class="buttonGrid" style="margin-top: 10px">
+            <button id="copyButton" type="button">复制 JSON</button>
+            <button id="downloadButton" type="button">下载 JSON</button>
+          </div>
+          <p class="hint">文件名会跟图片同名，例如 case001.jpg 对应 case001.json。转换脚本会读取这些 JSON。</p>
+        </section>
+      </aside>
+    </main>
+
+    <script>
+      const canvas = document.getElementById("canvas");
+      const ctx = canvas.getContext("2d");
+      const imageInput = document.getElementById("imageInput");
+      const jsonInput = document.getElementById("jsonInput");
+      const imageInfo = document.getElementById("imageInfo");
+      const pointList = document.getElementById("pointList");
+      const metrics = document.getElementById("metrics");
+      const jsonOutput = document.getElementById("jsonOutput");
+      const undoButton = document.getElementById("undoButton");
+      const resetButton = document.getElementById("resetButton");
+      const zoomOutButton = document.getElementById("zoomOutButton");
+      const zoomInButton = document.getElementById("zoomInButton");
+      const fitButton = document.getElementById("fitButton");
+      const actualSizeButton = document.getElementById("actualSizeButton");
+      const copyButton = document.getElementById("copyButton");
+      const downloadButton = document.getElementById("downloadButton");
+      const gtInput = document.getElementById("gtInput");
+      const upperInput = document.getElementById("upperInput");
+      const lowerInput = document.getElementById("lowerInput");
+
+      const pointDefs = [
+        ["upper_left", "上端椎上终板左点"],
+        ["upper_right", "上端椎上终板右点"],
+        ["lower_left", "下端椎下终板左点"],
+        ["lower_right", "下端椎下终板右点"],
+      ];
+
+      const state = {
+        image: null,
+        imageName: "",
+        imageWidth: 0,
+        imageHeight: 0,
+        fitScale: 1,
+        view: { scale: 1, offsetX: 0, offsetY: 0 },
+        transform: { x: 0, y: 0, width: canvas.width, height: canvas.height, scale: 1 },
+        points: {},
+        activePointName: null,
+        isPanning: false,
+        panStart: null,
+        importedJsonName: "",
+      };
+
+      function row(label, value, className = "") {
+        return `<div class="row"><strong>${escapeHtml(label)}</strong><span class="value ${className}">${escapeHtml(value)}</span></div>`;
+      }
+
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#039;");
+      }
+
+      function nextPointName() {
+        return pointDefs.find(([name]) => !state.points[name])?.[0] || null;
+      }
+
+      function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#10161c";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        if (!state.image) {
+          ctx.fillStyle = "#d8e0e8";
+          ctx.font = "18px Segoe UI, Microsoft YaHei, sans-serif";
+          ctx.textAlign = "center";
+          ctx.fillText("打开一张脊柱全长正位 X 线片后开始标注", canvas.width / 2, canvas.height / 2);
+          return;
+        }
+
+        if (!state.fitScale) resetView();
+        const ratio = state.fitScale * state.view.scale;
+        const width = state.image.width * ratio;
+        const height = state.image.height * ratio;
+        const x = (canvas.width - width) / 2 + state.view.offsetX;
+        const y = (canvas.height - height) / 2 + state.view.offsetY;
+        state.transform = { x, y, width, height, scale: ratio };
+        ctx.drawImage(state.image, x, y, width, height);
+
+        drawLine("upper_left", "upper_right", "#2fbf71");
+        drawLine("lower_left", "lower_right", "#4b8cff");
+        pointDefs.forEach(([name, label], index) => drawPoint(name, label, index + 1));
+      }
+
+      function drawLine(aName, bName, color) {
+        const a = state.points[aName];
+        const b = state.points[bName];
+        if (!a || !b) return;
+        const ac = imageToCanvas(a);
+        const bc = imageToCanvas(b);
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(ac.x, ac.y);
+        ctx.lineTo(bc.x, bc.y);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      function drawPoint(name, label, number) {
+        const point = state.points[name];
+        if (!point) return;
+        const canvasPoint = imageToCanvas(point);
+        ctx.save();
+        ctx.fillStyle = "#f5c542";
+        ctx.strokeStyle = "#102030";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(canvasPoint.x, canvasPoint.y, 7, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "12px Segoe UI, Microsoft YaHei, sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(String(number), canvasPoint.x, canvasPoint.y);
+        drawTag(label, canvasPoint.x + 12, canvasPoint.y - 8);
+        ctx.restore();
+      }
+
+      function drawTag(text, x, y) {
+        ctx.save();
+        ctx.font = "12px Segoe UI, Microsoft YaHei, sans-serif";
+        const width = ctx.measureText(text).width + 10;
+        const safeX = Math.max(4, Math.min(canvas.width - width - 4, x));
+        const safeY = Math.max(22, Math.min(canvas.height - 4, y));
+        ctx.fillStyle = "rgba(14, 20, 26, 0.78)";
+        ctx.fillRect(safeX, safeY - 18, width, 20);
+        ctx.fillStyle = "#ffffff";
+        ctx.textAlign = "left";
+        ctx.textBaseline = "alphabetic";
+        ctx.fillText(text, safeX + 5, safeY - 5);
+        ctx.restore();
+      }
+
+      function imageToCanvas(point) {
+        return {
+          x: state.transform.x + point[0] * state.transform.scale,
+          y: state.transform.y + point[1] * state.transform.scale,
+        };
+      }
+
+      function canvasToImage(x, y) {
+        return [
+          Math.round((x - state.transform.x) / state.transform.scale),
+          Math.round((y - state.transform.y) / state.transform.scale),
+        ];
+      }
+
+      function eventToCanvasPoint(event) {
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        return {
+          x: (event.clientX - rect.left) * scaleX,
+          y: (event.clientY - rect.top) * scaleY,
+        };
+      }
+
+      function resetView() {
+        if (!state.image) return;
+        state.fitScale = Math.min(canvas.width / state.image.width, canvas.height / state.image.height);
+        state.view = { scale: 1, offsetX: 0, offsetY: 0 };
+        state.transform = {
+          x: (canvas.width - state.image.width * state.fitScale) / 2,
+          y: (canvas.height - state.image.height * state.fitScale) / 2,
+          width: state.image.width * state.fitScale,
+          height: state.image.height * state.fitScale,
+          scale: state.fitScale,
+        };
+      }
+
+      function setZoom(nextScale, anchor = { x: canvas.width / 2, y: canvas.height / 2 }) {
+        if (!state.image) return;
+        const previousImagePoint = canvasToImage(anchor.x, anchor.y);
+        state.view.scale = Math.max(0.25, Math.min(8, nextScale));
+        const ratio = state.fitScale * state.view.scale;
+        const centeredX = (canvas.width - state.image.width * ratio) / 2;
+        const centeredY = (canvas.height - state.image.height * ratio) / 2;
+        state.view.offsetX = anchor.x - centeredX - previousImagePoint[0] * ratio;
+        state.view.offsetY = anchor.y - centeredY - previousImagePoint[1] * ratio;
+        render();
+      }
+
+      function setImagePoint(name, canvasX, canvasY) {
+        if (!state.image || !isInsideImage(canvasX, canvasY)) return;
+        const point = canvasToImage(canvasX, canvasY);
+        point[0] = Math.max(0, Math.min(state.imageWidth - 1, point[0]));
+        point[1] = Math.max(0, Math.min(state.imageHeight - 1, point[1]));
+        state.points[name] = point;
+      }
+
+      function hitTestPoint(canvasX, canvasY) {
+        let best = null;
+        pointDefs.forEach(([name]) => {
+          const point = state.points[name];
+          if (!point) return;
+          const canvasPoint = imageToCanvas(point);
+          const distance = Math.hypot(canvasPoint.x - canvasX, canvasPoint.y - canvasY);
+          if (distance <= 14 && (!best || distance < best.distance)) {
+            best = { name, distance };
+          }
+        });
+        return best?.name || null;
+      }
+
+      function isInsideImage(x, y) {
+        return (
+          x >= state.transform.x &&
+          x <= state.transform.x + state.transform.width &&
+          y >= state.transform.y &&
+          y <= state.transform.y + state.transform.height
+        );
+      }
+
+      function calculateLineAngle(a, b) {
+        return (Math.atan2(b[1] - a[1], b[0] - a[0]) * 180) / Math.PI;
+      }
+
+      function calculateCobb() {
+        const p = state.points;
+        if (!p.upper_left || !p.upper_right || !p.lower_left || !p.lower_right) return null;
+        const upper = calculateLineAngle(p.upper_left, p.upper_right);
+        const lower = calculateLineAngle(p.lower_left, p.lower_right);
+        let raw = Math.abs(upper - lower) % 180;
+        if (raw > 90) raw = 180 - raw;
+        return { cobb: raw, upper, lower };
+      }
+
+      function buildJson() {
+        if (!state.image) return null;
+        const points = {};
+        pointDefs.forEach(([name]) => {
+          if (state.points[name]) points[name] = state.points[name];
+        });
+        const payload = {
+          image: state.imageName,
+          image_width: state.imageWidth,
+          image_height: state.imageHeight,
+          points,
+          cobb_angle_gt: gtInput.value === "" ? null : Number(gtInput.value),
+          upper_end_vertebra: upperInput.value.trim() || "",
+          lower_end_vertebra: lowerInput.value.trim() || "",
+        };
+        return payload;
+      }
+
+      function render() {
+        draw();
+        const completed = pointDefs.filter(([name]) => state.points[name]).length;
+        const next = nextPointName();
+        imageInfo.innerHTML = [
+          row("文件名", state.imageName || "未打开"),
+          row("图像尺寸", state.image ? `${state.imageWidth} x ${state.imageHeight}` : "未读取"),
+          row("导入 JSON", state.importedJsonName || "无"),
+          row("标注进度", `${completed} / ${pointDefs.length}`, completed === pointDefs.length ? "" : "warning"),
+          row("下一点", next ? pointDefs.find(([name]) => name === next)[1] : "四点已完成"),
+        ].join("");
+
+        pointList.innerHTML = pointDefs
+          .map(([name, label], index) => {
+            const point = state.points[name];
+            const className = point ? "done" : name === next ? "active" : "";
+            const value = point ? `[${point[0]}, ${point[1]}]` : "待点击";
+            return `<div class="pointItem ${className}"><span class="dot"></span><strong>${index + 1}. ${escapeHtml(label)}</strong><span>${escapeHtml(value)}</span></div>`;
+          })
+          .join("");
+
+        const cobb = calculateCobb();
+        metrics.innerHTML = cobb
+          ? [
+              row("Cobb 角预览", `${cobb.cobb.toFixed(2)} deg`),
+              row("上终板角", `${cobb.upper.toFixed(2)} deg`),
+              row("下终板角", `${cobb.lower.toFixed(2)} deg`),
+            ].join("")
+          : row("Cobb 角预览", "四点完成后显示", "warning");
+
+        const payload = buildJson();
+        jsonOutput.value = payload ? JSON.stringify(payload, null, 2) : "";
+        undoButton.disabled = completed === 0;
+        resetButton.disabled = completed === 0;
+        copyButton.disabled = !payload || completed !== pointDefs.length;
+        downloadButton.disabled = !payload || completed !== pointDefs.length;
+      }
+
+      imageInput.addEventListener("change", async (event) => {
+        const [file] = event.target.files;
+        if (!file) return;
+        const dataUrl = await readFileAsDataUrl(file);
+        const image = await loadImage(dataUrl);
+        state.image = image;
+        state.imageName = file.name;
+        state.imageWidth = image.naturalWidth;
+        state.imageHeight = image.naturalHeight;
+        state.points = {};
+        state.activePointName = null;
+        state.isPanning = false;
+        state.importedJsonName = "";
+        resetView();
+        gtInput.value = "";
+        upperInput.value = "";
+        lowerInput.value = "";
+        render();
+      });
+
+      jsonInput.addEventListener("change", async (event) => {
+        const [file] = event.target.files;
+        if (!file) return;
+        const data = JSON.parse(await file.text());
+        state.importedJsonName = file.name;
+        if (data.image) state.imageName = data.image;
+        if (data.image_width) state.imageWidth = Number(data.image_width);
+        if (data.image_height) state.imageHeight = Number(data.image_height);
+        state.points = {};
+        pointDefs.forEach(([name]) => {
+          if (Array.isArray(data.points?.[name])) {
+            state.points[name] = [Number(data.points[name][0]), Number(data.points[name][1])];
+          }
+        });
+        gtInput.value = data.cobb_angle_gt ?? "";
+        upperInput.value = data.upper_end_vertebra ?? "";
+        lowerInput.value = data.lower_end_vertebra ?? "";
+        render();
+      });
+
+      canvas.addEventListener("pointerdown", (event) => {
+        if (!state.image) return;
+        const canvasPoint = eventToCanvasPoint(event);
+        const hit = hitTestPoint(canvasPoint.x, canvasPoint.y);
+        const next = nextPointName();
+        const targetName = hit || next;
+        if (targetName && (hit || isInsideImage(canvasPoint.x, canvasPoint.y))) {
+          setImagePoint(targetName, canvasPoint.x, canvasPoint.y);
+          state.activePointName = targetName;
+        } else {
+          state.isPanning = true;
+          state.panStart = { x: canvasPoint.x, y: canvasPoint.y, offsetX: state.view.offsetX, offsetY: state.view.offsetY };
+        }
+        canvas.setPointerCapture(event.pointerId);
+        render();
+      });
+
+      canvas.addEventListener("pointermove", (event) => {
+        const canvasPoint = eventToCanvasPoint(event);
+        if (state.activePointName) {
+          setImagePoint(state.activePointName, canvasPoint.x, canvasPoint.y);
+          render();
+          return;
+        }
+        if (state.isPanning && state.panStart) {
+          state.view.offsetX = state.panStart.offsetX + canvasPoint.x - state.panStart.x;
+          state.view.offsetY = state.panStart.offsetY + canvasPoint.y - state.panStart.y;
+          render();
+        }
+      });
+
+      canvas.addEventListener("pointerup", () => {
+        state.activePointName = null;
+        state.isPanning = false;
+        state.panStart = null;
+      });
+
+      canvas.addEventListener("pointercancel", () => {
+        state.activePointName = null;
+        state.isPanning = false;
+        state.panStart = null;
+      });
+
+      canvas.addEventListener("wheel", (event) => {
+        if (!state.image) return;
+        event.preventDefault();
+        const anchor = eventToCanvasPoint(event);
+        const factor = event.deltaY < 0 ? 1.15 : 1 / 1.15;
+        setZoom(state.view.scale * factor, anchor);
+      }, { passive: false });
+
+      undoButton.addEventListener("click", () => {
+        for (let index = pointDefs.length - 1; index >= 0; index -= 1) {
+          const name = pointDefs[index][0];
+          if (state.points[name]) {
+            delete state.points[name];
+            break;
+          }
+        }
+        render();
+      });
+
+      resetButton.addEventListener("click", () => {
+        state.points = {};
+        render();
+      });
+
+      zoomOutButton.addEventListener("click", () => setZoom(state.view.scale / 1.25));
+      zoomInButton.addEventListener("click", () => setZoom(state.view.scale * 1.25));
+      fitButton.addEventListener("click", () => {
+        resetView();
+        render();
+      });
+      actualSizeButton.addEventListener("click", () => {
+        if (!state.image || !state.fitScale) return;
+        setZoom(1 / state.fitScale);
+      });
+
+      [gtInput, upperInput, lowerInput].forEach((input) => input.addEventListener("input", render));
+
+      copyButton.addEventListener("click", async () => {
+        await navigator.clipboard.writeText(jsonOutput.value);
+        copyButton.textContent = "已复制";
+        setTimeout(() => {
+          copyButton.textContent = "复制 JSON";
+        }, 900);
+      });
+
+      downloadButton.addEventListener("click", async () => {
+        const filename = `${stem(state.imageName || "annotation")}.json`;
+        if (window.showSaveFilePicker) {
+          const handle = await window.showSaveFilePicker({
+            suggestedName: filename,
+            types: [{ description: "JSON", accept: { "application/json": [".json"] } }],
+          });
+          const writable = await handle.createWritable();
+          await writable.write(jsonOutput.value);
+          await writable.close();
+          return;
+        }
+        const blob = new Blob([jsonOutput.value], { type: "application/json" });
+        const link = document.createElement("a");
+        link.download = filename;
+        link.href = URL.createObjectURL(blob);
+        link.click();
+        URL.revokeObjectURL(link.href);
+      });
+
+      function stem(filename) {
+        return filename.replace(/\.[^.]+$/, "");
+      }
+
+      function readFileAsDataUrl(file) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => reject(reader.error);
+          reader.readAsDataURL(file);
+        });
+      }
+
+      function loadImage(src) {
+        return new Promise((resolve, reject) => {
+          const image = new Image();
+          image.onload = () => resolve(image);
+          image.onerror = () => reject(new Error("无法读取图像"));
+          image.src = src;
+        });
+      }
+
+      render();
+    </script>
+  </body>
+</html>

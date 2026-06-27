@@ -305,10 +305,10 @@
             <label for="modeInput">标注模式</label>
             <select id="modeInput">
               <option value="basic">基础模式：主 Cobb 四点</option>
-              <option value="full">完整模式：多参数 v2</option>
+              <option value="full">完整模式：多曲线 / 多参数 v2</option>
             </select>
           </div>
-          <p class="hint">坐标使用原图像素坐标，不是页面缩放后的坐标。完整模式不会改变当前训练脚本，当前 YOLO pose 仍只读取主 Cobb 四点。</p>
+          <p class="hint">坐标使用原图像素坐标，不是页面缩放后的坐标。完整模式可标主弯、次弯和第三弯；当前 YOLO pose 训练仍默认只读取主 Cobb 四点。</p>
         </section>
 
         <section class="section">
@@ -324,7 +324,7 @@
             <button id="fitButton" type="button">适应</button>
             <button id="actualSizeButton" type="button">100%</button>
           </div>
-          <p class="hint">滚轮缩放；拖动空白处平移；拖动黄色点微调。完整模式里不确定的点可以暂时不标。</p>
+          <p class="hint">滚轮缩放；拖动空白处平移；拖动黄色点微调。完整模式里不确定的次弯或参数点可以暂时不标。</p>
         </section>
 
         <section class="section">
@@ -392,6 +392,14 @@
         upper_right: { label: "上端椎上终板右点", group: "main_cobb", required: true },
         lower_left: { label: "下端椎下终板左点", group: "main_cobb", required: true },
         lower_right: { label: "下端椎下终板右点", group: "main_cobb", required: true },
+        secondary_upper_left: { label: "次弯上端椎终板左点", group: "secondary_cobb" },
+        secondary_upper_right: { label: "次弯上端椎终板右点", group: "secondary_cobb" },
+        secondary_lower_left: { label: "次弯下端椎终板左点", group: "secondary_cobb" },
+        secondary_lower_right: { label: "次弯下端椎终板右点", group: "secondary_cobb" },
+        tertiary_upper_left: { label: "第三弯上端椎终板左点", group: "tertiary_cobb" },
+        tertiary_upper_right: { label: "第三弯上端椎终板右点", group: "tertiary_cobb" },
+        tertiary_lower_left: { label: "第三弯下端椎终板左点", group: "tertiary_cobb" },
+        tertiary_lower_right: { label: "第三弯下端椎终板右点", group: "tertiary_cobb" },
         t1_upper_left: { label: "T1 上终板左点", group: "t1_tilt" },
         t1_upper_right: { label: "T1 上终板右点", group: "t1_tilt" },
         c7_center: { label: "C7 中点", group: "global_alignment" },
@@ -408,6 +416,14 @@
       const basicPointNames = ["upper_left", "upper_right", "lower_left", "lower_right"];
       const fullPointNames = [
         ...basicPointNames,
+        "secondary_upper_left",
+        "secondary_upper_right",
+        "secondary_lower_left",
+        "secondary_lower_right",
+        "tertiary_upper_left",
+        "tertiary_upper_right",
+        "tertiary_lower_left",
+        "tertiary_lower_right",
         "t1_upper_left",
         "t1_upper_right",
         "c7_center",
@@ -419,6 +435,30 @@
         "right_clavicle",
         "left_pelvis",
         "right_pelvis",
+      ];
+
+      const curveSpecs = [
+        {
+          id: "main",
+          label: "主弯",
+          type: "main",
+          pointNames: ["upper_left", "upper_right", "lower_left", "lower_right"],
+          upperInput,
+          lowerInput,
+          gtInput,
+        },
+        {
+          id: "secondary",
+          label: "次弯",
+          type: "secondary",
+          pointNames: ["secondary_upper_left", "secondary_upper_right", "secondary_lower_left", "secondary_lower_right"],
+        },
+        {
+          id: "tertiary",
+          label: "第三弯",
+          type: "tertiary",
+          pointNames: ["tertiary_upper_left", "tertiary_upper_right", "tertiary_lower_left", "tertiary_lower_right"],
+        },
       ];
 
       const state = {
@@ -482,6 +522,10 @@
 
         drawLine("upper_left", "upper_right", "#2fbf71");
         drawLine("lower_left", "lower_right", "#4b8cff");
+        drawLine("secondary_upper_left", "secondary_upper_right", "#f08a4b");
+        drawLine("secondary_lower_left", "secondary_lower_right", "#f08a4b");
+        drawLine("tertiary_upper_left", "tertiary_upper_right", "#d06bd3");
+        drawLine("tertiary_lower_left", "tertiary_lower_right", "#d06bd3");
         drawLine("t1_upper_left", "t1_upper_right", "#d16666");
         drawLine("left_shoulder", "right_shoulder", "#9b6bd3");
         drawLine("left_clavicle", "right_clavicle", "#6d8edb");
@@ -658,6 +702,54 @@
         return { cobb: calculateAngleBetween(p.upper_left, p.upper_right, p.lower_left, p.lower_right), upper, lower };
       }
 
+      function calculateCurve(pointNames) {
+        const [upperLeft, upperRight, lowerLeft, lowerRight] = pointNames.map((name) => state.points[name]);
+        const pointsComplete = Boolean(upperLeft && upperRight && lowerLeft && lowerRight);
+        if (!pointsComplete) return null;
+        const upper = calculateLineAngle(upperLeft, upperRight);
+        const lower = calculateLineAngle(lowerLeft, lowerRight);
+        return {
+          cobb: calculateAngleBetween(upperLeft, upperRight, lowerLeft, lowerRight),
+          upper,
+          lower,
+        };
+      }
+
+      function curvePoints(pointNames) {
+        const [upperLeftName, upperRightName, lowerLeftName, lowerRightName] = pointNames;
+        const points = {};
+        if (state.points[upperLeftName]) points.upper_left = state.points[upperLeftName];
+        if (state.points[upperRightName]) points.upper_right = state.points[upperRightName];
+        if (state.points[lowerLeftName]) points.lower_left = state.points[lowerLeftName];
+        if (state.points[lowerRightName]) points.lower_right = state.points[lowerRightName];
+        return points;
+      }
+
+      function buildCurves() {
+        return curveSpecs
+          .map((spec) => {
+            const points = curvePoints(spec.pointNames);
+            const complete = ["upper_left", "upper_right", "lower_left", "lower_right"].every((name) => points[name]);
+            if (!complete) return null;
+            const curve = calculateCurve(spec.pointNames);
+            return {
+              curve_id: spec.id,
+              curve_type: spec.type,
+              label: spec.label,
+              points,
+              cobb_angle_gt:
+                spec.gtInput && spec.gtInput.value !== ""
+                  ? Number(spec.gtInput.value)
+                  : Number(curve.cobb.toFixed(2)),
+              upper_end_vertebra: spec.upperInput ? spec.upperInput.value.trim() || "" : "",
+              lower_end_vertebra: spec.lowerInput ? spec.lowerInput.value.trim() || "" : "",
+              upper_endplate_angle: Number(curve.upper.toFixed(2)),
+              lower_endplate_angle: Number(curve.lower.toFixed(2)),
+            };
+          })
+          .filter(Boolean);
+      }
+
       function optionalLineMetric(leftName, rightName) {
         const left = state.points[leftName];
         const right = state.points[rightName];
@@ -694,6 +786,7 @@
         if (!state.image) return null;
         const cobb = calculateCobb();
         const mainPoints = legacyMainPoints();
+        const curves = buildCurves();
         const payload = {
           schema_version: "scoliosisnet_annotation_v2",
           image: state.imageName,
@@ -704,6 +797,7 @@
           cobb_angle_gt: gtInput.value === "" ? (cobb ? Number(cobb.cobb.toFixed(2)) : null) : Number(gtInput.value),
           upper_end_vertebra: upperInput.value.trim() || "",
           lower_end_vertebra: lowerInput.value.trim() || "",
+          curves,
           annotations: {
             main_cobb: {
               points: mainPoints,
@@ -738,7 +832,8 @@
           payload.annotations.vertebrae = [];
           payload.notes = [
             "v2 完整参数标注可逐步补齐。当前 scoliosisNET v1 训练仍只读取 annotations.main_cobb.points 或顶层 points 四点。",
-            "若后续训练全椎体/多曲线模型，可在 annotations.vertebrae 中追加每个椎体四角点。",
+            "curves 数组用于保存主弯、次弯和第三弯。当前转换脚本默认只把主弯四点转换为 YOLO pose。",
+            "若后续训练全椎体模型，可在 annotations.vertebrae 中追加每个椎体四角点。",
           ];
         }
         return payload;
@@ -783,6 +878,10 @@
             ]
           : [row("Cobb 角预览", "四个主 Cobb 点完成后显示", "warning")];
         if (state.mode === "full") {
+          curveSpecs.slice(1).forEach((spec) => {
+            const curve = calculateCurve(spec.pointNames);
+            rows.push(row(`${spec.label} Cobb`, curve ? `${curve.cobb.toFixed(2)} deg` : "未完整标注", curve ? "" : "warning"));
+          });
           rows.push(row("T1 倾斜角", t1 === null ? "未标注" : `${t1.toFixed(2)} deg`, t1 === null ? "warning" : ""));
           rows.push(row("C7PL-CSVL", c7Offset === null ? "未标注" : `${c7Offset.toFixed(1)} px`, c7Offset === null ? "warning" : ""));
           rows.push(row("顶椎偏距", apexOffset === null ? "未标注" : `${apexOffset.toFixed(1)} px`, apexOffset === null ? "warning" : ""));
@@ -823,7 +922,7 @@
         if (!file) return;
         const data = JSON.parse(await file.text());
         state.importedJsonName = file.name;
-        if (data.annotation_mode === "full") {
+        if (data.annotation_mode === "full" || Array.isArray(data.curves)) {
           state.mode = "full";
           modeInput.value = "full";
         }
@@ -837,6 +936,7 @@
           ...(data.annotations?.t1_tilt?.points || {}),
           ...(data.annotations?.global_alignment?.points || {}),
           ...(data.annotations?.shoulder_pelvis?.points || {}),
+          ...curvePointsFromImport(data.curves),
         };
         Object.keys(pointCatalog).forEach((name) => {
           if (Array.isArray(mergedPoints[name])) {
@@ -849,6 +949,28 @@
         apexInput.value = data.annotations?.global_alignment?.apex_vertebra ?? "";
         render();
       });
+
+      function curvePointsFromImport(curves) {
+        const imported = {};
+        if (!Array.isArray(curves)) return imported;
+        const curveMap = {
+          main: ["upper_left", "upper_right", "lower_left", "lower_right"],
+          secondary: ["secondary_upper_left", "secondary_upper_right", "secondary_lower_left", "secondary_lower_right"],
+          tertiary: ["tertiary_upper_left", "tertiary_upper_right", "tertiary_lower_left", "tertiary_lower_right"],
+        };
+        curves.forEach((curve, index) => {
+          const key = curve.curve_type || curve.curve_id || (index === 0 ? "main" : index === 1 ? "secondary" : "tertiary");
+          const targetNames = curveMap[key];
+          const points = curve.points || {};
+          if (!targetNames || !points) return;
+          ["upper_left", "upper_right", "lower_left", "lower_right"].forEach((sourceName, pointIndex) => {
+            if (Array.isArray(points[sourceName])) {
+              imported[targetNames[pointIndex]] = points[sourceName];
+            }
+          });
+        });
+        return imported;
+      }
 
       modeInput.addEventListener("change", () => {
         state.mode = modeInput.value;

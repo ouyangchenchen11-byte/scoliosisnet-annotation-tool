@@ -353,6 +353,33 @@
         </section>
 
         <section class="section">
+          <h2>质控审核</h2>
+          <div class="field">
+            <label for="reviewStatusInput">审核结论</label>
+            <select id="reviewStatusInput">
+              <option value="pending">未审核</option>
+              <option value="approved">通过，可用于训练</option>
+              <option value="needs_fix">需修改后再用</option>
+              <option value="rejected">不采用</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="reviewerInput">审核者，可留空</label>
+            <input id="reviewerInput" type="text" placeholder="例如 OY / 医生A" />
+          </div>
+          <div class="buttonGrid" style="margin-top: 10px">
+            <button id="approveButton" type="button">标记通过</button>
+            <button id="needsFixButton" type="button">标记需修改</button>
+            <button id="rejectButton" type="button">标记不采用</button>
+          </div>
+          <div class="field">
+            <label for="reviewNotesInput">审核意见</label>
+            <textarea id="reviewNotesInput" spellcheck="false" placeholder="例如：上端椎应改为 T6；下终板右点偏外侧；次弯暂不确定。"></textarea>
+          </div>
+          <p class="hint">导入别人发来的 JSON 后，先打开对应图片检查点位。通过审核的 JSON 可放入训练集；需修改或不采用的 JSON 暂时不要用于训练。</p>
+        </section>
+
+        <section class="section">
           <h2>JSON 输出</h2>
           <textarea id="jsonOutput" spellcheck="false" readonly></textarea>
           <div class="buttonGrid" style="margin-top: 10px">
@@ -386,6 +413,12 @@
       const lowerInput = document.getElementById("lowerInput");
       const apexInput = document.getElementById("apexInput");
       const modeInput = document.getElementById("modeInput");
+      const reviewStatusInput = document.getElementById("reviewStatusInput");
+      const reviewerInput = document.getElementById("reviewerInput");
+      const reviewNotesInput = document.getElementById("reviewNotesInput");
+      const approveButton = document.getElementById("approveButton");
+      const needsFixButton = document.getElementById("needsFixButton");
+      const rejectButton = document.getElementById("rejectButton");
 
       const pointCatalog = {
         upper_left: { label: "上端椎上终板左点", group: "main_cobb", required: true },
@@ -475,6 +508,7 @@
         isPanning: false,
         panStart: null,
         importedJsonName: "",
+        reviewedAt: "",
       };
 
       function currentPointNames() {
@@ -492,6 +526,16 @@
           .replace(/>/g, "&gt;")
           .replace(/"/g, "&quot;")
           .replace(/'/g, "&#039;");
+      }
+
+      function reviewStatusLabel(status) {
+        const labels = {
+          pending: "未审核",
+          approved: "通过，可用于训练",
+          needs_fix: "需修改后再用",
+          rejected: "不采用",
+        };
+        return labels[status] || "未审核";
       }
 
       function nextPointName() {
@@ -810,6 +854,13 @@
             research_demo_only: true,
             contains_patient_identifier: false,
           },
+          quality_control: {
+            status: reviewStatusInput.value,
+            reviewer: reviewerInput.value.trim() || "",
+            reviewed_at: reviewStatusInput.value === "pending" ? "" : state.reviewedAt,
+            notes: reviewNotesInput.value.trim() || "",
+            training_use: reviewStatusInput.value === "approved",
+          },
         };
 
         if (state.mode === "full") {
@@ -850,6 +901,7 @@
           row("图像尺寸", state.image ? `${state.imageWidth} x ${state.imageHeight}` : "未读取"),
           row("标注模式", state.mode === "full" ? "完整参数 v2" : "基础4点"),
           row("导入 JSON", state.importedJsonName || "无"),
+          row("审核状态", reviewStatusLabel(reviewStatusInput.value), reviewStatusInput.value === "approved" ? "" : "warning"),
           row("主 Cobb 四点", `${requiredCompleted} / ${basicPointNames.length}`, requiredCompleted === basicPointNames.length ? "" : "warning"),
           row("当前模式进度", `${completed} / ${names.length}`, completed === names.length ? "" : "warning"),
           row("下一点", next ? pointCatalog[next].label : "当前模式已完成"),
@@ -914,6 +966,7 @@
         upperInput.value = "";
         lowerInput.value = "";
         apexInput.value = "";
+        resetReview();
         render();
       });
 
@@ -947,8 +1000,29 @@
         upperInput.value = data.annotations?.main_cobb?.upper_end_vertebra ?? data.upper_end_vertebra ?? "";
         lowerInput.value = data.annotations?.main_cobb?.lower_end_vertebra ?? data.lower_end_vertebra ?? "";
         apexInput.value = data.annotations?.global_alignment?.apex_vertebra ?? "";
+        loadReview(data.quality_control || data.metadata?.quality_control || {});
         render();
       });
+
+      function resetReview() {
+        reviewStatusInput.value = "pending";
+        reviewerInput.value = "";
+        reviewNotesInput.value = "";
+        state.reviewedAt = "";
+      }
+
+      function loadReview(review) {
+        reviewStatusInput.value = review.status || "pending";
+        reviewerInput.value = review.reviewer || "";
+        reviewNotesInput.value = review.notes || "";
+        state.reviewedAt = review.reviewed_at || "";
+      }
+
+      function setReviewStatus(status) {
+        reviewStatusInput.value = status;
+        state.reviewedAt = status === "pending" ? "" : new Date().toISOString();
+        render();
+      }
 
       function curvePointsFromImport(curves) {
         const imported = {};
@@ -1056,7 +1130,16 @@
         setZoom(1 / state.fitScale);
       });
 
-      [gtInput, upperInput, lowerInput, apexInput].forEach((input) => input.addEventListener("input", render));
+      [gtInput, upperInput, lowerInput, apexInput, reviewerInput, reviewNotesInput].forEach((input) => input.addEventListener("input", render));
+
+      reviewStatusInput.addEventListener("change", () => {
+        state.reviewedAt = reviewStatusInput.value === "pending" ? "" : new Date().toISOString();
+        render();
+      });
+
+      approveButton.addEventListener("click", () => setReviewStatus("approved"));
+      needsFixButton.addEventListener("click", () => setReviewStatus("needs_fix"));
+      rejectButton.addEventListener("click", () => setReviewStatus("rejected"));
 
       copyButton.addEventListener("click", async () => {
         await navigator.clipboard.writeText(jsonOutput.value);

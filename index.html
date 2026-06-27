@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>scoliosisNET 四点标注工具</title>
+    <title>scoliosisNET 标注工具</title>
     <style>
       :root {
         color-scheme: light;
@@ -23,13 +23,14 @@
 
       button,
       input,
+      select,
       textarea {
         font: inherit;
       }
 
       .shell {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) 390px;
+        grid-template-columns: minmax(0, 1fr) 420px;
         min-height: 100vh;
       }
 
@@ -67,7 +68,8 @@
       }
 
       .actions,
-      .buttonGrid {
+      .buttonGrid,
+      .zoomControls {
         display: flex;
         flex-wrap: wrap;
         gap: 10px;
@@ -150,6 +152,7 @@
       }
 
       .field input,
+      .field select,
       textarea {
         width: 100%;
         min-height: 36px;
@@ -206,6 +209,9 @@
       .pointList {
         display: grid;
         gap: 7px;
+        max-height: 390px;
+        overflow: auto;
+        padding-right: 2px;
       }
 
       .pointItem {
@@ -243,9 +249,6 @@
       }
 
       .zoomControls {
-        display: flex;
-        gap: 8px;
-        flex-wrap: wrap;
         margin-top: 10px;
       }
 
@@ -275,8 +278,8 @@
       <section class="workspace">
         <header class="topbar">
           <div>
-            <h1>scoliosisNET 四点点击标注工具</h1>
-            <p>科研/demo 标注辅助；上端椎和下端椎选择必须由医生或研究者确认。</p>
+            <h1>scoliosisNET 标注工具</h1>
+            <p>科研/demo 标注辅助。当前模型仍训练主 Cobb 四点；完整模式用于逐步积累多参数标注。</p>
           </div>
           <div class="actions">
             <label class="fileButton">
@@ -298,8 +301,14 @@
         <section class="section">
           <h2>当前图像</h2>
           <div id="imageInfo"></div>
-          <p class="hint">坐标使用原图像素坐标，不是页面缩放后的坐标。</p>
-          <p class="hint">可以导入 GPT 预标注 JSON，然后拖动黄色点进行人工复核和修正。</p>
+          <div class="field">
+            <label for="modeInput">标注模式</label>
+            <select id="modeInput">
+              <option value="basic">基础模式：主 Cobb 四点</option>
+              <option value="full">完整模式：多参数 v2</option>
+            </select>
+          </div>
+          <p class="hint">坐标使用原图像素坐标，不是页面缩放后的坐标。完整模式不会改变当前训练脚本，当前 YOLO pose 仍只读取主 Cobb 四点。</p>
         </section>
 
         <section class="section">
@@ -307,7 +316,7 @@
           <div id="pointList" class="pointList"></div>
           <div class="buttonGrid" style="margin-top: 10px">
             <button id="undoButton" type="button">撤销上一点</button>
-            <button id="resetButton" type="button">清空四点</button>
+            <button id="resetButton" type="button">清空当前模式点</button>
           </div>
           <div class="zoomControls">
             <button id="zoomOutButton" type="button">-</button>
@@ -315,7 +324,7 @@
             <button id="fitButton" type="button">适应</button>
             <button id="actualSizeButton" type="button">100%</button>
           </div>
-          <p class="hint">滚轮缩放；拖动空白处平移；拖动黄色点微调标注。</p>
+          <p class="hint">滚轮缩放；拖动空白处平移；拖动黄色点微调。完整模式里不确定的点可以暂时不标。</p>
         </section>
 
         <section class="section">
@@ -332,6 +341,10 @@
             <label for="lowerInput">下端椎，可留空</label>
             <input id="lowerInput" type="text" placeholder="例如 L1" />
           </div>
+          <div class="field">
+            <label for="apexInput">顶椎，可留空</label>
+            <input id="apexInput" type="text" placeholder="例如 T9" />
+          </div>
         </section>
 
         <section class="section">
@@ -346,7 +359,7 @@
             <button id="copyButton" type="button">复制 JSON</button>
             <button id="downloadButton" type="button">下载 JSON</button>
           </div>
-          <p class="hint">文件名会跟图片同名，例如 case001.jpg 对应 case001.json。转换脚本会读取这些 JSON。</p>
+          <p class="hint">文件名会跟图片同名，例如 case001.jpg 对应 case001.json。v2 JSON 仍包含旧版 points 四点字段，可继续用于当前训练转换。</p>
         </section>
       </aside>
     </main>
@@ -371,12 +384,41 @@
       const gtInput = document.getElementById("gtInput");
       const upperInput = document.getElementById("upperInput");
       const lowerInput = document.getElementById("lowerInput");
+      const apexInput = document.getElementById("apexInput");
+      const modeInput = document.getElementById("modeInput");
 
-      const pointDefs = [
-        ["upper_left", "上端椎上终板左点"],
-        ["upper_right", "上端椎上终板右点"],
-        ["lower_left", "下端椎下终板左点"],
-        ["lower_right", "下端椎下终板右点"],
+      const pointCatalog = {
+        upper_left: { label: "上端椎上终板左点", group: "main_cobb", required: true },
+        upper_right: { label: "上端椎上终板右点", group: "main_cobb", required: true },
+        lower_left: { label: "下端椎下终板左点", group: "main_cobb", required: true },
+        lower_right: { label: "下端椎下终板右点", group: "main_cobb", required: true },
+        t1_upper_left: { label: "T1 上终板左点", group: "t1_tilt" },
+        t1_upper_right: { label: "T1 上终板右点", group: "t1_tilt" },
+        c7_center: { label: "C7 中点", group: "global_alignment" },
+        sacrum_center: { label: "骶骨中点 / CSVL 参考点", group: "global_alignment" },
+        apex_center: { label: "主弯顶椎中心", group: "global_alignment" },
+        left_shoulder: { label: "左肩参考点", group: "shoulder" },
+        right_shoulder: { label: "右肩参考点", group: "shoulder" },
+        left_clavicle: { label: "左锁骨参考点", group: "shoulder" },
+        right_clavicle: { label: "右锁骨参考点", group: "shoulder" },
+        left_pelvis: { label: "左骨盆参考点", group: "pelvis" },
+        right_pelvis: { label: "右骨盆参考点", group: "pelvis" },
+      };
+
+      const basicPointNames = ["upper_left", "upper_right", "lower_left", "lower_right"];
+      const fullPointNames = [
+        ...basicPointNames,
+        "t1_upper_left",
+        "t1_upper_right",
+        "c7_center",
+        "sacrum_center",
+        "apex_center",
+        "left_shoulder",
+        "right_shoulder",
+        "left_clavicle",
+        "right_clavicle",
+        "left_pelvis",
+        "right_pelvis",
       ];
 
       const state = {
@@ -387,12 +429,17 @@
         fitScale: 1,
         view: { scale: 1, offsetX: 0, offsetY: 0 },
         transform: { x: 0, y: 0, width: canvas.width, height: canvas.height, scale: 1 },
+        mode: "basic",
         points: {},
         activePointName: null,
         isPanning: false,
         panStart: null,
         importedJsonName: "",
       };
+
+      function currentPointNames() {
+        return state.mode === "full" ? fullPointNames : basicPointNames;
+      }
 
       function row(label, value, className = "") {
         return `<div class="row"><strong>${escapeHtml(label)}</strong><span class="value ${className}">${escapeHtml(value)}</span></div>`;
@@ -408,7 +455,7 @@
       }
 
       function nextPointName() {
-        return pointDefs.find(([name]) => !state.points[name])?.[0] || null;
+        return currentPointNames().find((name) => !state.points[name]) || null;
       }
 
       function draw() {
@@ -435,7 +482,14 @@
 
         drawLine("upper_left", "upper_right", "#2fbf71");
         drawLine("lower_left", "lower_right", "#4b8cff");
-        pointDefs.forEach(([name, label], index) => drawPoint(name, label, index + 1));
+        drawLine("t1_upper_left", "t1_upper_right", "#d16666");
+        drawLine("left_shoulder", "right_shoulder", "#9b6bd3");
+        drawLine("left_clavicle", "right_clavicle", "#6d8edb");
+        drawLine("left_pelvis", "right_pelvis", "#d19a2a");
+        drawVerticalGuide("c7_center", "#2fbf71");
+        drawVerticalGuide("sacrum_center", "#4b8cff");
+
+        currentPointNames().forEach((name, index) => drawPoint(name, index + 1));
       }
 
       function drawLine(aName, bName, color) {
@@ -454,9 +508,25 @@
         ctx.restore();
       }
 
-      function drawPoint(name, label, number) {
+      function drawVerticalGuide(name, color) {
         const point = state.points[name];
         if (!point) return;
+        const canvasPoint = imageToCanvas(point);
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([8, 8]);
+        ctx.beginPath();
+        ctx.moveTo(canvasPoint.x, 20);
+        ctx.lineTo(canvasPoint.x, canvas.height - 20);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      function drawPoint(name, number) {
+        const point = state.points[name];
+        if (!point) return;
+        const def = pointCatalog[name];
         const canvasPoint = imageToCanvas(point);
         ctx.save();
         ctx.fillStyle = "#f5c542";
@@ -471,7 +541,7 @@
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText(String(number), canvasPoint.x, canvasPoint.y);
-        drawTag(label, canvasPoint.x + 12, canvasPoint.y - 8);
+        drawTag(def.label, canvasPoint.x + 12, canvasPoint.y - 8);
         ctx.restore();
       }
 
@@ -549,7 +619,7 @@
 
       function hitTestPoint(canvasX, canvasY) {
         let best = null;
-        pointDefs.forEach(([name]) => {
+        currentPointNames().forEach((name) => {
           const point = state.points[name];
           if (!point) return;
           const canvasPoint = imageToCanvas(point);
@@ -574,70 +644,157 @@
         return (Math.atan2(b[1] - a[1], b[0] - a[0]) * 180) / Math.PI;
       }
 
+      function calculateAngleBetween(a1, a2, b1, b2) {
+        let raw = Math.abs(calculateLineAngle(a1, a2) - calculateLineAngle(b1, b2)) % 180;
+        if (raw > 90) raw = 180 - raw;
+        return raw;
+      }
+
       function calculateCobb() {
         const p = state.points;
         if (!p.upper_left || !p.upper_right || !p.lower_left || !p.lower_right) return null;
         const upper = calculateLineAngle(p.upper_left, p.upper_right);
         const lower = calculateLineAngle(p.lower_left, p.lower_right);
-        let raw = Math.abs(upper - lower) % 180;
-        if (raw > 90) raw = 180 - raw;
-        return { cobb: raw, upper, lower };
+        return { cobb: calculateAngleBetween(p.upper_left, p.upper_right, p.lower_left, p.lower_right), upper, lower };
+      }
+
+      function optionalLineMetric(leftName, rightName) {
+        const left = state.points[leftName];
+        const right = state.points[rightName];
+        if (!left || !right) return null;
+        return calculateLineAngle(left, right);
+      }
+
+      function optionalHorizontalDistance(aName, bName) {
+        const a = state.points[aName];
+        const b = state.points[bName];
+        if (!a || !b) return null;
+        return a[0] - b[0];
+      }
+
+      function legacyMainPoints() {
+        const points = {};
+        basicPointNames.forEach((name) => {
+          if (state.points[name]) points[name] = state.points[name];
+        });
+        return points;
+      }
+
+      function groupPoints(group) {
+        const points = {};
+        Object.entries(pointCatalog).forEach(([name, def]) => {
+          if (def.group === group && state.points[name]) {
+            points[name] = state.points[name];
+          }
+        });
+        return points;
       }
 
       function buildJson() {
         if (!state.image) return null;
-        const points = {};
-        pointDefs.forEach(([name]) => {
-          if (state.points[name]) points[name] = state.points[name];
-        });
+        const cobb = calculateCobb();
+        const mainPoints = legacyMainPoints();
         const payload = {
+          schema_version: "scoliosisnet_annotation_v2",
           image: state.imageName,
           image_width: state.imageWidth,
           image_height: state.imageHeight,
-          points,
-          cobb_angle_gt: gtInput.value === "" ? null : Number(gtInput.value),
+          annotation_mode: state.mode,
+          points: mainPoints,
+          cobb_angle_gt: gtInput.value === "" ? (cobb ? Number(cobb.cobb.toFixed(2)) : null) : Number(gtInput.value),
           upper_end_vertebra: upperInput.value.trim() || "",
           lower_end_vertebra: lowerInput.value.trim() || "",
+          annotations: {
+            main_cobb: {
+              points: mainPoints,
+              cobb_angle_gt: gtInput.value === "" ? (cobb ? Number(cobb.cobb.toFixed(2)) : null) : Number(gtInput.value),
+              upper_end_vertebra: upperInput.value.trim() || "",
+              lower_end_vertebra: lowerInput.value.trim() || "",
+            },
+          },
+          metadata: {
+            research_demo_only: true,
+            contains_patient_identifier: false,
+          },
         };
+
+        if (state.mode === "full") {
+          payload.annotations.t1_tilt = { points: groupPoints("t1_tilt"), angle_gt: optionalLineMetric("t1_upper_left", "t1_upper_right") };
+          payload.annotations.global_alignment = {
+            points: groupPoints("global_alignment"),
+            c7_pl_to_csvl_px: optionalHorizontalDistance("c7_center", "sacrum_center"),
+            apical_translation_px: optionalHorizontalDistance("apex_center", "sacrum_center"),
+            apex_vertebra: apexInput.value.trim() || "",
+          };
+          payload.annotations.shoulder_pelvis = {
+            points: {
+              ...groupPoints("shoulder"),
+              ...groupPoints("pelvis"),
+            },
+            shoulder_height_px: state.points.left_shoulder && state.points.right_shoulder ? state.points.left_shoulder[1] - state.points.right_shoulder[1] : null,
+            clavicle_angle_gt: optionalLineMetric("left_clavicle", "right_clavicle"),
+            pelvic_obliquity_gt: optionalLineMetric("left_pelvis", "right_pelvis"),
+          };
+          payload.annotations.vertebrae = [];
+          payload.notes = [
+            "v2 完整参数标注可逐步补齐。当前 scoliosisNET v1 训练仍只读取 annotations.main_cobb.points 或顶层 points 四点。",
+            "若后续训练全椎体/多曲线模型，可在 annotations.vertebrae 中追加每个椎体四角点。",
+          ];
+        }
         return payload;
       }
 
       function render() {
         draw();
-        const completed = pointDefs.filter(([name]) => state.points[name]).length;
+        const names = currentPointNames();
+        const completed = names.filter((name) => state.points[name]).length;
+        const requiredCompleted = basicPointNames.filter((name) => state.points[name]).length;
         const next = nextPointName();
         imageInfo.innerHTML = [
           row("文件名", state.imageName || "未打开"),
           row("图像尺寸", state.image ? `${state.imageWidth} x ${state.imageHeight}` : "未读取"),
+          row("标注模式", state.mode === "full" ? "完整参数 v2" : "基础4点"),
           row("导入 JSON", state.importedJsonName || "无"),
-          row("标注进度", `${completed} / ${pointDefs.length}`, completed === pointDefs.length ? "" : "warning"),
-          row("下一点", next ? pointDefs.find(([name]) => name === next)[1] : "四点已完成"),
+          row("主 Cobb 四点", `${requiredCompleted} / ${basicPointNames.length}`, requiredCompleted === basicPointNames.length ? "" : "warning"),
+          row("当前模式进度", `${completed} / ${names.length}`, completed === names.length ? "" : "warning"),
+          row("下一点", next ? pointCatalog[next].label : "当前模式已完成"),
         ].join("");
 
-        pointList.innerHTML = pointDefs
-          .map(([name, label], index) => {
+        pointList.innerHTML = names
+          .map((name, index) => {
+            const def = pointCatalog[name];
             const point = state.points[name];
             const className = point ? "done" : name === next ? "active" : "";
+            const required = def.required ? " *" : "";
             const value = point ? `[${point[0]}, ${point[1]}]` : "待点击";
-            return `<div class="pointItem ${className}"><span class="dot"></span><strong>${index + 1}. ${escapeHtml(label)}</strong><span>${escapeHtml(value)}</span></div>`;
+            return `<div class="pointItem ${className}"><span class="dot"></span><strong>${index + 1}. ${escapeHtml(def.label + required)}</strong><span>${escapeHtml(value)}</span></div>`;
           })
           .join("");
 
         const cobb = calculateCobb();
-        metrics.innerHTML = cobb
+        const t1 = optionalLineMetric("t1_upper_left", "t1_upper_right");
+        const c7Offset = optionalHorizontalDistance("c7_center", "sacrum_center");
+        const apexOffset = optionalHorizontalDistance("apex_center", "sacrum_center");
+        const rows = cobb
           ? [
               row("Cobb 角预览", `${cobb.cobb.toFixed(2)} deg`),
               row("上终板角", `${cobb.upper.toFixed(2)} deg`),
               row("下终板角", `${cobb.lower.toFixed(2)} deg`),
-            ].join("")
-          : row("Cobb 角预览", "四点完成后显示", "warning");
+            ]
+          : [row("Cobb 角预览", "四个主 Cobb 点完成后显示", "warning")];
+        if (state.mode === "full") {
+          rows.push(row("T1 倾斜角", t1 === null ? "未标注" : `${t1.toFixed(2)} deg`, t1 === null ? "warning" : ""));
+          rows.push(row("C7PL-CSVL", c7Offset === null ? "未标注" : `${c7Offset.toFixed(1)} px`, c7Offset === null ? "warning" : ""));
+          rows.push(row("顶椎偏距", apexOffset === null ? "未标注" : `${apexOffset.toFixed(1)} px`, apexOffset === null ? "warning" : ""));
+        }
+        metrics.innerHTML = rows.join("");
 
         const payload = buildJson();
         jsonOutput.value = payload ? JSON.stringify(payload, null, 2) : "";
         undoButton.disabled = completed === 0;
         resetButton.disabled = completed === 0;
-        copyButton.disabled = !payload || completed !== pointDefs.length;
-        downloadButton.disabled = !payload || completed !== pointDefs.length;
+        copyButton.disabled = !payload || requiredCompleted !== basicPointNames.length;
+        downloadButton.disabled = !payload || requiredCompleted !== basicPointNames.length;
       }
 
       imageInput.addEventListener("change", async (event) => {
@@ -657,6 +814,7 @@
         gtInput.value = "";
         upperInput.value = "";
         lowerInput.value = "";
+        apexInput.value = "";
         render();
       });
 
@@ -665,18 +823,35 @@
         if (!file) return;
         const data = JSON.parse(await file.text());
         state.importedJsonName = file.name;
+        if (data.annotation_mode === "full") {
+          state.mode = "full";
+          modeInput.value = "full";
+        }
         if (data.image) state.imageName = data.image;
         if (data.image_width) state.imageWidth = Number(data.image_width);
         if (data.image_height) state.imageHeight = Number(data.image_height);
         state.points = {};
-        pointDefs.forEach(([name]) => {
-          if (Array.isArray(data.points?.[name])) {
-            state.points[name] = [Number(data.points[name][0]), Number(data.points[name][1])];
+        const mergedPoints = {
+          ...(data.points || {}),
+          ...(data.annotations?.main_cobb?.points || {}),
+          ...(data.annotations?.t1_tilt?.points || {}),
+          ...(data.annotations?.global_alignment?.points || {}),
+          ...(data.annotations?.shoulder_pelvis?.points || {}),
+        };
+        Object.keys(pointCatalog).forEach((name) => {
+          if (Array.isArray(mergedPoints[name])) {
+            state.points[name] = [Number(mergedPoints[name][0]), Number(mergedPoints[name][1])];
           }
         });
-        gtInput.value = data.cobb_angle_gt ?? "";
-        upperInput.value = data.upper_end_vertebra ?? "";
-        lowerInput.value = data.lower_end_vertebra ?? "";
+        gtInput.value = data.annotations?.main_cobb?.cobb_angle_gt ?? data.cobb_angle_gt ?? "";
+        upperInput.value = data.annotations?.main_cobb?.upper_end_vertebra ?? data.upper_end_vertebra ?? "";
+        lowerInput.value = data.annotations?.main_cobb?.lower_end_vertebra ?? data.lower_end_vertebra ?? "";
+        apexInput.value = data.annotations?.global_alignment?.apex_vertebra ?? "";
+        render();
+      });
+
+      modeInput.addEventListener("change", () => {
+        state.mode = modeInput.value;
         render();
       });
 
@@ -732,8 +907,9 @@
       }, { passive: false });
 
       undoButton.addEventListener("click", () => {
-        for (let index = pointDefs.length - 1; index >= 0; index -= 1) {
-          const name = pointDefs[index][0];
+        const names = currentPointNames();
+        for (let index = names.length - 1; index >= 0; index -= 1) {
+          const name = names[index];
           if (state.points[name]) {
             delete state.points[name];
             break;
@@ -743,7 +919,7 @@
       });
 
       resetButton.addEventListener("click", () => {
-        state.points = {};
+        currentPointNames().forEach((name) => delete state.points[name]);
         render();
       });
 
@@ -758,7 +934,7 @@
         setZoom(1 / state.fitScale);
       });
 
-      [gtInput, upperInput, lowerInput].forEach((input) => input.addEventListener("input", render));
+      [gtInput, upperInput, lowerInput, apexInput].forEach((input) => input.addEventListener("input", render));
 
       copyButton.addEventListener("click", async () => {
         await navigator.clipboard.writeText(jsonOutput.value);
@@ -784,7 +960,9 @@
         const link = document.createElement("a");
         link.download = filename;
         link.href = URL.createObjectURL(blob);
+        document.body.appendChild(link);
         link.click();
+        link.remove();
         URL.revokeObjectURL(link.href);
       });
 
